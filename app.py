@@ -1,6 +1,6 @@
 from slack_bolt import App
 from slack_bolt.adapter.flask import SlackRequestHandler
-from flask import Flask, request
+from flask import Flask, request, make_response
 import openai
 import requests
 import json
@@ -69,13 +69,10 @@ def handle_reaction(event, say):
 @flask_app.route("/slack/events", methods=["POST"])
 def slack_events():
     # Maneja verificación inicial de Slack (challenge)
-   from flask import make_response
-
-@flask_app.route("/slack/events", methods=["POST"])
-def slack_events():
     data = request.get_json()
     if data and "challenge" in data:
         return make_response(data["challenge"], 200, {"content_type": "text/plain"})
+    # Pasa el resto de los eventos al manejador de Bolt
     return handler.handle(request)
 
 
