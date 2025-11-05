@@ -5,7 +5,7 @@ from openai import OpenAI
 import os
 import requests
 
-# === CONFIGURACIÓN ===
+# === CONFIG ===
 SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN")
 SLACK_SIGNING_SECRET = os.environ.get("SLACK_SIGNING_SECRET")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
@@ -14,13 +14,13 @@ NOTION_DATABASE_ID = os.environ.get("NOTION_DATABASE_ID")
 
 client_ai = OpenAI(api_key=OPENAI_API_KEY)
 
-# === INICIALIZACIÓN ===
+# === INIT ===
 bolt_app = App(token=SLACK_BOT_TOKEN, signing_secret=SLACK_SIGNING_SECRET)
 flask_app = Flask(__name__)
 handler = SlackRequestHandler(bolt_app)
 
 
-# === RUTAS FLASK ===
+# === HEALTHCHECK ===
 @flask_app.route("/", methods=["GET"])
 def home():
     return "✅ Meta Solver online"
@@ -30,11 +30,8 @@ def home():
 def slack_events():
     data = request.get_json()
     print("📩 Incoming Slack event:", data)
-
-    # Verificación de URL (Slack Challenge)
     if data and "challenge" in data:
         return make_response(data["challenge"], 200, {"content_type": "text/plain"})
-
     return handler.handle(request)
 
 
@@ -75,47 +72,53 @@ def handle_message_events(body, say, client, event):
 
         user = event.get("user")
         channel = event.get("channel")
-
-        # Si es una respuesta en hilo, seguir ahí
         parent_ts = event["thread_ts"] if event.get("thread_ts") else event["ts"]
 
         # 👀 Reaccionar al mensaje original
-        client.reactions_add(channel=channel, timestamp=event["ts"], name="eyes")
+        try:
+            client.reactions_add(channel=channel, timestamp=event["ts"], name="eyes")
+        except Exception as e:
+            print("⚠️ No se pudo agregar reacción:", e)
 
-        # 💬 Si el mensaje es tipo "gracias" o "me sirvió"
+        # 🙌 Si es mensaje de agradecimiento
         if any(palabra in text for palabra in ["gracias", "me sirvió", "genial", "perfecto", "buenísimo"]):
             client.reactions_add(channel=channel, timestamp=event["ts"], name="raised_hands")
             say(thread_ts=parent_ts, text="🙌 ¡Me alegra que haya servido!")
             guardar_feedback_en_notion(user, text)
             return
 
-        # 🧠 Prompt directo y útil
+        # 🧠 Prompt optimizado + búsqueda web real
         prompt = f"""
 Sos Meta Solver, un asistente técnico del equipo de Darwin AI que ayuda a resolver problemas con Meta,
-Meta Business Manager y la API de WhatsApp Business (por ejemplo: conexión, permisos, tokens, co-existence, etc.).
+Meta Business Manager y la API de WhatsApp Business (conexión, permisos, tokens, co-existence, etc.).
 
-Tu objetivo es responder de forma **muy directa y accionable**, en español, sin diagnósticos largos ni explicaciones innecesarias.
-
-🔹 Si el problema es claro, respondé solo con los pasos para resolverlo (breves y en tono natural).  
-🔹 Si se necesita más contexto, pedí exactamente la información que falta.  
-🔹 Siempre que puedas, incluí **un solo link oficial o confiable** que sirva para avanzar.
-
-Ejemplo de estilo:
-"Probá volver a conectar el número desde Business Manager > Configuración de WhatsApp > Números.  
-Si sigue igual, revisá los permisos en https://developers.facebook.com/docs/whatsapp/cloud-api"
+Respondé **de forma corta y accionable**, en español.
+🔹 Si el problema es claro, da solo los pasos concretos para resolverlo.  
+🔹 Si falta info, pedí puntualmente lo que necesites.  
+🔹 Solo compartí links **oficiales y verificados**. Si no hay, decí: “no encontré un link oficial disponible”.
 
 Mensaje del usuario:
 \"\"\"{text}\"\"\"
 """
 
         completion = client_ai.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=180
+            model="gpt-5",  # Usa GPT-5 con búsqueda web real
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Sos Meta Solver, un asistente técnico del equipo de Darwin AI. "
+                        "Usá la búsqueda web integrada para compartir únicamente links reales "
+                        "de Meta o Facebook for Developers."
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ],
+            tools=[{"type": "web-search"}],
+            max_tokens=200,
         )
 
         response_text = completion.choices[0].message.content.strip()
-
         say(text=response_text, thread_ts=parent_ts)
 
     except Exception as e:
