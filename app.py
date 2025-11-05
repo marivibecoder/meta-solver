@@ -69,10 +69,15 @@ def handle_reaction(event, say):
 @flask_app.route("/slack/events", methods=["POST"])
 def slack_events():
     # Maneja verificación inicial de Slack (challenge)
-    if "challenge" in request.json:
-        return request.json["challenge"]
-    # Pasa el resto de los eventos al manejador de Bolt
+   from flask import make_response
+
+@flask_app.route("/slack/events", methods=["POST"])
+def slack_events():
+    data = request.get_json()
+    if data and "challenge" in data:
+        return make_response(data["challenge"], 200, {"content_type": "text/plain"})
     return handler.handle(request)
+
 
 # === INICIO DEL SERVIDOR ===
 if __name__ == "__main__":
