@@ -4,26 +4,21 @@ from slack_bolt.adapter.flask import SlackRequestHandler
 import openai
 import os
 import json
-import requests
 
 # === CONFIGURACIÓN ===
 SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN")
 SLACK_SIGNING_SECRET = os.environ.get("SLACK_SIGNING_SECRET")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-NOTION_TOKEN = os.environ.get("NOTION_TOKEN")
-NOTION_DATABASE_ID = os.environ.get("NOTION_DATABASE_ID")
-
-print("🔧 Starting app with:")
-print("SLACK_BOT_TOKEN:", bool(SLACK_BOT_TOKEN))
-print("SLACK_SIGNING_SECRET:", bool(SLACK_SIGNING_SECRET))
 
 # === INICIALIZACIÓN ===
 bolt_app = App(token=SLACK_BOT_TOKEN, signing_secret=SLACK_SIGNING_SECRET)
-openai.api_key = OPENAI_API_KEY
 flask_app = Flask(__name__)
 handler = SlackRequestHandler(bolt_app)
 
+openai.api_key = OPENAI_API_KEY
 
+
+# === RUTAS FLASK ===
 @flask_app.route("/", methods=["GET"])
 def home():
     return "✅ Meta Solver online"
@@ -31,40 +26,53 @@ def home():
 
 @flask_app.route("/slack/events", methods=["POST"])
 def slack_events():
+    data = request.get_json()
+    print("📩 Incoming Slack event:", data)
+
+    # URL Verification
+    if data and "challenge" in data:
+        return make_response(data["challenge"], 200, {"content_type": "text/plain"})
+
+    return handler.handle(request)
+
+
+# === EVENTOS SLACK ===
+@bolt_app.event("message")
+def handle_message_events(body, say, client, event):
     try:
-        data = request.get_json(force=True)
-        print("📩 Received from Slack:", data)
+        # Ignorar mensajes del bot mismo
+        if event.get("subtype") == "bot_message":
+            return
 
-        # Slack URL Verification (Challenge)
-        if data and "challenge" in data:
-            challenge = data.get("challenge")
-            print("✅ Returning challenge:", challenge)
-            return make_response(challenge, 200, {"content_type": "text/plain"})
+        user = event.get("user")
+        channel = event.get("channel")
+        text = event.get("text")
+        ts = event.get("ts")
 
-        # Pasar evento a Bolt
-        return handler.handle(request)
+        # 👀 Reaccionar al mensaje original
+        client.reactions_add(
+            channel=channel,
+            timestamp=ts,
+            name="eyes"
+        )
+
+        # 🧠 Generar respuesta con OpenAI
+        prompt = f"Un usuario escribió: '{text}'. Respondé con una breve sugerencia o ayuda profesional."
+        completion = openai.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}]
+        )
+        response_text = completion.choices[0].message.content.strip()
+
+        # 💬 Responder en hilo
+        say(
+            text=response_text,
+            thread_ts=ts
+        )
 
     except Exception as e:
-        print("💥 Error in /slack/events:", e)
-        return make_response("Internal Server Error", 500)
-
-
-# === HANDLER DE MENSAJES ===
-@bolt_app.event("message")
-def handle_message(event, say):
-    if event.get("subtype") is None:
-        text = event.get("text")
-        prompt = f"Eres un experto en resolver problemas de Meta. Un usuario escribió: '{text}'. Respondé brevemente con una posible ayuda o sugerencia. Si no hay suficiente información, responde con 'No puedo ayudarte con eso'."
-
-        try:
-            completion = openai.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": prompt}]
-            )
-            response = completion.choices[0].message.content
-            say(thread_ts=event["ts"], text=response + "\n¿Te sirvió esta info?")
-        except Exception as e:
-            say(thread_ts=event["ts"], text=f"⚠️ Error procesando el mensaje: {e}")
+        print("💥 Error en handle_message_events:", e)
+        say(thread_ts=event["ts"], text=f"⚠️ Error procesando el mensaje: {e}")
 
 
 # === MAIN ===
