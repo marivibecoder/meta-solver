@@ -101,7 +101,7 @@ Mensaje del usuario:
 """
 
         completion = client_ai.chat.completions.create(
-            model="gpt-5",
+            model="gpt-4o",
             messages=[
                 {
                     "role": "system",
@@ -113,7 +113,8 @@ Mensaje del usuario:
                 },
                 {"role": "user", "content": prompt},
             ],
-            temperature=0.2  # Controla la creatividad sin romper compatibilidad
+            temperature=0.2,
+            max_tokens=250
         )
 
         response_text = completion.choices[0].message.content.strip()
