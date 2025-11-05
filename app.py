@@ -19,10 +19,12 @@ bolt_app = App(token=SLACK_BOT_TOKEN, signing_secret=SLACK_SIGNING_SECRET)
 flask_app = Flask(__name__)
 handler = SlackRequestHandler(bolt_app)
 
+
 # === HEALTHCHECK ===
 @flask_app.route("/", methods=["GET"])
 def home():
     return "✅ Meta Solver online"
+
 
 @flask_app.route("/slack/events", methods=["POST"])
 def slack_events():
@@ -30,6 +32,7 @@ def slack_events():
     if data and "challenge" in data:
         return make_response(data["challenge"], 200, {"content_type": "text/plain"})
     return handler.handle(request)
+
 
 # === FUNCIONES AUXILIARES ===
 def guardar_feedback_en_notion(user, message):
@@ -53,6 +56,7 @@ def guardar_feedback_en_notion(user, message):
         print(f"📝 Feedback guardado en Notion: {user} - {message}")
     except Exception as e:
         print("⚠️ Error guardando feedback en Notion:", e)
+
 
 # === EVENTOS SLACK ===
 @bolt_app.event("message")
@@ -109,7 +113,7 @@ Mensaje del usuario:
                 },
                 {"role": "user", "content": prompt},
             ],
-            max_completion_tokens=200,
+            temperature=0.2  # Controla la creatividad sin romper compatibilidad
         )
 
         response_text = completion.choices[0].message.content.strip()
@@ -118,6 +122,7 @@ Mensaje del usuario:
     except Exception as e:
         print("💥 Error en handle_message_events:", e)
         say(thread_ts=event.get("ts"), text=f"⚠️ Error procesando el mensaje: {e}")
+
 
 # === MAIN ===
 if __name__ == "__main__":
