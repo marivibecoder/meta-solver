@@ -53,9 +53,19 @@ def guardar_feedback_en_notion(user, message):
             }
         }
         requests.post(notion_url, headers=headers, json=data)
-        print(f"📝 Feedback guardado en Notion: {user} - {message}")
     except Exception as e:
         print("⚠️ Error guardando feedback en Notion:", e)
+
+
+def obtener_contexto_hilo(client, channel, thread_ts):
+    """Obtiene los mensajes previos en el hilo para dar contexto a la respuesta."""
+    try:
+        replies = client.conversations_replies(channel=channel, ts=thread_ts)
+        mensajes = [r.get("text", "") for r in replies.get("messages", []) if "subtype" not in r]
+        return "\n".join(mensajes)
+    except Exception as e:
+        print("⚠️ No se pudo obtener el contexto del hilo:", e)
+        return ""
 
 
 # === EVENTOS SLACK ===
@@ -73,11 +83,16 @@ def handle_message_events(body, say, client, event):
         channel = event.get("channel")
         parent_ts = event["thread_ts"] if event.get("thread_ts") else event["ts"]
 
+        # Solo responde si lo mencionan
+        bot_user_id = client.auth_test()["user_id"]
+        if f"<@{bot_user_id}>" not in text:
+            return
+
         # 👀 Reaccionar al mensaje original
         try:
             client.reactions_add(channel=channel, timestamp=event["ts"], name="eyes")
-        except Exception as e:
-            print("⚠️ No se pudo agregar reacción:", e)
+        except Exception:
+            pass
 
         # 🙌 Si es mensaje de agradecimiento
         if any(palabra in text for palabra in ["gracias", "me sirvió", "genial", "perfecto", "buenísimo"]):
@@ -86,17 +101,25 @@ def handle_message_events(body, say, client, event):
             guardar_feedback_en_notion(user, text)
             return
 
-        # 🧠 Prompt optimizado para respuestas cortas
+        # 🧠 Obtener contexto del hilo
+        contexto_hilo = obtener_contexto_hilo(client, channel, parent_ts)
+
+        # 🧠 Prompt optimizado
         prompt = f"""
 Sos Meta Solver, un asistente técnico del equipo de Darwin AI que ayuda a resolver problemas con Meta,
 Meta Business Manager y la API de WhatsApp Business (conexión, permisos, tokens, coexistencia, etc.).
+
+Tené en cuenta todo el hilo de conversación previo para dar una respuesta coherente:
+---
+{contexto_hilo}
+---
 
 💬 Responde de forma **breve y accionable**, sin rodeos.
 Si falta información, pedí puntualmente lo que necesites.
 Solo compartí links **oficiales y reales** (developers.facebook.com, business.whatsapp.com, meta.com).
 Si no estás 100% seguro de que un link existe, decí: “no encontré un link oficial disponible”.
 
-Mensaje del usuario:
+Mensaje nuevo del usuario:
 \"\"\"{text}\"\"\"
 """
 
@@ -114,7 +137,7 @@ Mensaje del usuario:
                 {"role": "user", "content": prompt},
             ],
             temperature=0.2,
-            max_tokens=250
+            max_tokens=300
         )
 
         response_text = completion.choices[0].message.content.strip()
