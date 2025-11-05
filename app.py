@@ -6,38 +6,43 @@ import requests
 import json
 import os
 
-# Config desde variables de entorno (más seguro)
+# === CONFIGURACIÓN ===
 SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN")
 SLACK_SIGNING_SECRET = os.environ.get("SLACK_SIGNING_SECRET")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 NOTION_TOKEN = os.environ.get("NOTION_TOKEN")
 NOTION_DATABASE_ID = os.environ.get("NOTION_DATABASE_ID")
 
+# === INICIALIZACIÓN ===
 app = App(token=SLACK_BOT_TOKEN, signing_secret=SLACK_SIGNING_SECRET)
 openai.api_key = OPENAI_API_KEY
 flask_app = Flask(__name__)
 handler = SlackRequestHandler(app)
 
+# === EVENTO: NUEVOS MENSAJES EN SLACK ===
 @app.event("message")
 def handle_message(event, say):
-    if event.get("subtype") is None and "meta-blockers" in event.get("channel", ""):
+    if event.get("subtype") is None:  # evita mensajes del sistema
         user_message = event["text"]
 
         prompt = f"""
-        Sos un compañero experto en resolver bloqueos internos.
+        Sos un especialista en resolver problemas relacionados a Meta (Business Manager, Lineas de WhatsApp por la API, coexistance, etc).
         Alguien escribió: "{user_message}".
-        Respondé con claridad y pasos concretos. 
-        Al final, preguntá: "¿Te sirvió esta info?".
+        Respondé con claridad, pasos concretos y amabilidad.
+        Al final, preguntá: "Te sirvió esta info?".
         """
 
-        response = openai.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}]
-        )
+        try:
+            response = openai.chat.completions.create(
+                model="gpt-4o",
+                messages=[{"role": "user", "content": prompt}]
+            )
+            reply = response.choices[0].message.content
+            say(thread_ts=event["ts"], text=reply)
+        except Exception as e:
+            say(thread_ts=event["ts"], text=f"Hubo un error procesando el mensaje: {e}")
 
-        reply = response.choices[0].message.content
-        say(thread_ts=event["ts"], text=reply)
-
+# === EVENTO: REACCIÓN CON ✅ PARA GUARDAR EN NOTION ===
 @app.event("reaction_added")
 def handle_reaction(event, say):
     if event["reaction"] == "white_check_mark":
@@ -55,11 +60,20 @@ def handle_reaction(event, say):
                 "Source": {"rich_text": [{"text": {"content": "Slack"}}]},
             }
         }
-        requests.post(notion_url, headers=headers, data=json.dumps(data))
+        try:
+            requests.post(notion_url, headers=headers, data=json.dumps(data))
+        except Exception as e:
+            print(f"Error guardando en Notion: {e}")
 
+# === ENDPOINT PARA EVENTOS DE SLACK ===
 @flask_app.route("/slack/events", methods=["POST"])
 def slack_events():
+    # Maneja verificación inicial de Slack (challenge)
+    if "challenge" in request.json:
+        return request.json["challenge"]
+    # Pasa el resto de los eventos al manejador de Bolt
     return handler.handle(request)
 
+# === INICIO DEL SERVIDOR ===
 if __name__ == "__main__":
     flask_app.run(host="0.0.0.0", port=3000)
