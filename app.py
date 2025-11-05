@@ -14,10 +14,11 @@ NOTION_TOKEN = os.environ.get("NOTION_TOKEN")
 NOTION_DATABASE_ID = os.environ.get("NOTION_DATABASE_ID")
 
 # === INICIALIZACIÓN ===
-app = App(token=SLACK_BOT_TOKEN, signing_secret=SLACK_SIGNING_SECRET)
+bolt_app = App(token=SLACK_BOT_TOKEN, signing_secret=SLACK_SIGNING_SECRET)
 openai.api_key = OPENAI_API_KEY
 flask_app = Flask(__name__)
-handler = SlackRequestHandler(app)
+handler = SlackRequestHandler(bolt_app)
+
 
 # === EVENTO: NUEVOS MENSAJES EN SLACK ===
 @app.event("message")
@@ -68,12 +69,11 @@ def handle_reaction(event, say):
 # === ENDPOINT PARA EVENTOS DE SLACK ===
 @flask_app.route("/slack/events", methods=["POST"])
 def slack_events():
-    # Maneja verificación inicial de Slack (challenge)
     data = request.get_json()
     if data and "challenge" in data:
         return make_response(data["challenge"], 200, {"content_type": "text/plain"})
-    # Pasa el resto de los eventos al manejador de Bolt
     return handler.handle(request)
+
 
 
 
