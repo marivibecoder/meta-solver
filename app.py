@@ -19,21 +19,17 @@ bolt_app = App(token=SLACK_BOT_TOKEN, signing_secret=SLACK_SIGNING_SECRET)
 flask_app = Flask(__name__)
 handler = SlackRequestHandler(bolt_app)
 
-
 # === HEALTHCHECK ===
 @flask_app.route("/", methods=["GET"])
 def home():
     return "✅ Meta Solver online"
 
-
 @flask_app.route("/slack/events", methods=["POST"])
 def slack_events():
     data = request.get_json()
-    print("📩 Incoming Slack event:", data)
     if data and "challenge" in data:
         return make_response(data["challenge"], 200, {"content_type": "text/plain"})
     return handler.handle(request)
-
 
 # === FUNCIONES AUXILIARES ===
 def guardar_feedback_en_notion(user, message):
@@ -57,7 +53,6 @@ def guardar_feedback_en_notion(user, message):
         print(f"📝 Feedback guardado en Notion: {user} - {message}")
     except Exception as e:
         print("⚠️ Error guardando feedback en Notion:", e)
-
 
 # === EVENTOS SLACK ===
 @bolt_app.event("message")
@@ -87,34 +82,33 @@ def handle_message_events(body, say, client, event):
             guardar_feedback_en_notion(user, text)
             return
 
-        # 🧠 Prompt optimizado + búsqueda web real
+        # 🧠 Prompt optimizado para respuestas cortas
         prompt = f"""
 Sos Meta Solver, un asistente técnico del equipo de Darwin AI que ayuda a resolver problemas con Meta,
-Meta Business Manager y la API de WhatsApp Business (conexión, permisos, tokens, co-existence, etc.).
+Meta Business Manager y la API de WhatsApp Business (conexión, permisos, tokens, coexistencia, etc.).
 
-Respondé **de forma corta y accionable**, en español.
-🔹 Si el problema es claro, da solo los pasos concretos para resolverlo.  
-🔹 Si falta info, pedí puntualmente lo que necesites.  
-🔹 Solo compartí links **oficiales y verificados**. Si no hay, decí: “no encontré un link oficial disponible”.
+💬 Responde de forma **breve y accionable**, sin rodeos.
+Si falta información, pedí puntualmente lo que necesites.
+Solo compartí links **oficiales y reales** (developers.facebook.com, business.whatsapp.com, meta.com).
+Si no estás 100% seguro de que un link existe, decí: “no encontré un link oficial disponible”.
 
 Mensaje del usuario:
 \"\"\"{text}\"\"\"
 """
 
         completion = client_ai.chat.completions.create(
-            model="gpt-5",  # Usa GPT-5 con búsqueda web real
+            model="gpt-5",
             messages=[
                 {
                     "role": "system",
                     "content": (
-                        "Sos Meta Solver, un asistente técnico del equipo de Darwin AI. "
-                        "Usá la búsqueda web integrada para compartir únicamente links reales "
-                        "de Meta o Facebook for Developers."
+                        "Sos Meta Solver, un asistente técnico confiable. "
+                        "Responde corto, directo y con pasos claros. "
+                        "Nunca inventes links — solo usa los que sean de Meta, Facebook o WhatsApp oficiales."
                     ),
                 },
                 {"role": "user", "content": prompt},
             ],
-            tools=[{"type": "web-search"}],
             max_tokens=200,
         )
 
@@ -124,7 +118,6 @@ Mensaje del usuario:
     except Exception as e:
         print("💥 Error en handle_message_events:", e)
         say(thread_ts=event.get("ts"), text=f"⚠️ Error procesando el mensaje: {e}")
-
 
 # === MAIN ===
 if __name__ == "__main__":
