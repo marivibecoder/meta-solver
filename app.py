@@ -109,7 +109,7 @@ Mensaje del usuario:
                 },
                 {"role": "user", "content": prompt},
             ],
-            max_tokens=200,
+            max_completion_tokens=200,
         )
 
         response_text = completion.choices[0].message.content.strip()
